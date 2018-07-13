@@ -2,3 +2,6 @@
 *.idea
 *.pyc
 *.cache
+*.DS_store
+
+*.ipynb_checkpoints/

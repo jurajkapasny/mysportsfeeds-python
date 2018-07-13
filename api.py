@@ -10,12 +10,12 @@ from dateutil.parser import parse
 class MsfLib:
     def __init__(self, version):
         config = ConfigParser.ConfigParser()
-        config.read("config/config.ini")
+        config.read("/Users/jurajkapasny/Code/GitHub/jurajkapasny/BettingAgent/backend/libs/SportsFeedAPI/config/config.ini")
         self.auth = (config.get("Authentication", "username"), config.get("Authentication", "password"))
         self.params = {"accept-encoding": "gzip", "force": "false"}
         self.store_location = config.get("FileStore", "location")
 
-        with open("config/api_version_params.json") as f:
+        with open("/Users/jurajkapasny/Code/GitHub/jurajkapasny/BettingAgent/backend/libs/SportsFeedAPI/config/api_version_params.json") as f:
             data = json.loads(f.read())
             if version in data.keys():
                 self.version = version
@@ -27,7 +27,7 @@ class MsfLib:
         sports = self.version_inputs["sports"]
         try:
             for sport in sports:
-                url = "https://www.mysportsfeeds.com/api/feed/pull/{sport}/latest/latest_updates.{format}&force=True".format(
+                url = "https://api.mysportsfeeds.com/v1.2/pull/{sport}/latest/latest_updates.{format}&force=True".format(
                                                                                                                     sport=sport,
                                                                                                                     format=output)
                 r = requests.get(url, auth=self.auth, params={})
@@ -40,6 +40,7 @@ class MsfLib:
 
         except requests.exceptions.RequestException as e:
             raise Warning("Failed due to error: {error}".format(error=e))
+
 
 
 class FeedStorageMethod:
@@ -69,8 +70,8 @@ class BaseFeed:
 
     def make_base_url(self):
         season = self.parse_season_type(self.season, self.season_type)
-        self.base_url = "https://www.mysportsfeeds.com/api/feed/pull/{sport}/{season}".format(sport=self.sport,
-                                                                                              season=season)
+        self.base_url = "https://api.mysportsfeeds.com/v1.2/pull/{sport}/{season}".format(sport=self.sport,
+                                                                                    season=season)
         return self.base_url
 
     def parse_season_type(self, season, season_type):
@@ -128,15 +129,20 @@ class BaseFeed:
         for param in self.config.version_inputs["optional_params"]:
             if self.config.params.get(param):
                 s += "-" + str(self.config.params.get(param))
-
-        filename = "{sport}-{feed}-{date}-{season}{s}.{output_type}".format(sport=self.sport.lower(), feed=self.extension,
+        try:
+            filename = "{sport}-{feed}-{date}-{season}{s}.{output_type}".format(sport=self.sport.lower(),                                                                                                 feed=self.extension,
                                                                             date=self.config.params["fordate"],
+                                                                            season=season, s=s,
+                                                                            output_type=self.output_type)
+        except KeyError:
+            filename = "{sport}-{feed}-{season}{s}.{output_type}".format(sport=self.sport.lower(),                                                                                                 feed=self.extension,
                                                                             season=season, s=s,
                                                                             output_type=self.output_type)
         return filename
 
     def make_call(self, base_url, url):
         try:
+            print (base_url+url)
             r = requests.get(base_url+url, auth=self.config.auth, params=self.config.params)
             self.status_last = r.status_code
 
@@ -177,17 +183,17 @@ class BaseFeed:
                 raise AssertionError("Requested output type incorrect.  Check self.output_type")
 
         if self.store.method == "standard":
-            if not os.path.isdir("results"):
-                os.mkdir("results")
+            if not os.path.isdir("/Users/jurajkapasny/Code/GitHub/jurajkapasny/BettingAgent/data"):
+                os.mkdir("/Users/jurajkapasny/Code/GitHub/jurajkapasny/BettingAgent/data")
 
             filename = self.make_output_filename()
 
-            with open(self.store.location + filename, "w") as outfile:
+            with open(self.store.location + filename, "wb") as outfile:
                 if isinstance(self.store.output, dict):  # This is JSON
                     json.dump(self.store.output, outfile)
 
                 elif isinstance(self.store.output, unicode):  # This is xml
-                    outfile.write(self.store.output.encode("u tf-8"))
+                    outfile.write(self.store.output.encode("utf-8"))
 
                 elif isinstance(self.store.output, list):  # This is csv
                     writer = csv.writer(outfile)
@@ -207,7 +213,7 @@ class BaseFeed:
         if isinstance(data, dict):
             for key, value in data.items():
                 if data.get(key):
-                    self.config.params[key.lower()] = value.lower()
+                    self.config.params[key.lower()] = value
         else:
             raise TypeError("Must add parameters as a dictionary")
 
@@ -225,7 +231,7 @@ class BaseFeed:
 
 
 class Feed(BaseFeed):
-    def __init__(self, config=MsfLib("1.0"), sport="nhl", season="current", season_type="regular", date=datetime.now().strftime("%Y%m%d"), output_type="json"):
+    def __init__(self, config=MsfLib("1.0"), sport="nhl", season="current", season_type="regular", date=datetime.now().strftime("%Y%m%d"), output_type="csv"):
         BaseFeed.__init__(self)
         self.config = config
         self.sport = sport.lower()
@@ -241,11 +247,15 @@ class Feed(BaseFeed):
     def set_store(self, feed_storage_method):
         self.store = feed_storage_method
 
-    def make_url(self, extension):
+    def make_url(self, extension, gameid = None, player_stats=None, team_stats=None):
         self.extension = extension
         self.base_url = self.make_base_url()
-        self.url_ext = "/" + extension + "." + self.output_type
-
+        if gameid == None:
+            self.url_ext = "/" + extension + "." + self.output_type
+        else: 
+            self.url_ext = "/" + extension + "." + self.output_type + "?gameid=" + gameid
+        print (self.url_ext)
+            
     def cum_player_stats(self):
         self.make_url("cumulative_player_stats")
         self.make_call(self.base_url, self.url_ext)
@@ -275,7 +285,9 @@ class Feed(BaseFeed):
             "teamstats": team_stats,
             "gameid": "{date}-{away}-{home}".format(date=self.config.params["fordate"], away=awayteam, home=hometeam)
         })
-        self.make_url("game_playbyplay")
+        self.make_url("game_playbyplay", gameid = self.config.params["gameid"]
+                                     , player_stats = player_stats
+                                     , team_stats = team_stats)
         self.make_call(self.base_url, self.url_ext)
 
     def boxscore(self, hometeam, awayteam, player_stats=None, team_stats=None):
@@ -284,7 +296,9 @@ class Feed(BaseFeed):
             "teamstats": team_stats,
             "gameid": "{date}-{away}-{home}".format(date=self.config.params["fordate"], away=awayteam, home=hometeam)
             })
-        self.make_url("game_boxscore")
+        self.make_url("game_boxscore", gameid = self.config.params["gameid"]
+                                     , player_stats = player_stats
+                                     , team_stats = team_stats)
         self.make_call(self.base_url, self.url_ext)
 
     def roster(self):
